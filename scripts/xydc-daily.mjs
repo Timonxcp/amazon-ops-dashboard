@@ -46,6 +46,7 @@ function dateInLosAngeles() {
 }
 
 async function callXydc(pathName, body) {
+  let lastErr;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const res = await fetch(`${API_BASE}${pathName}`, {
       method: "POST",
@@ -62,9 +63,17 @@ async function callXydc(pathName, body) {
       await new Promise((r) => setTimeout(r, 800 * 2 ** attempt));
       continue;
     }
-    throw new Error(`xydc ${pathName} HTTP ${res.status} ${payload?.message || ""}`);
+    lastErr = new Error(
+      `xydc ${pathName} HTTP ${res.status} ${payload?.code || ""} ${payload?.message || payload?.msg || ""}`
+    );
+    if (res.status === 400) throw lastErr;
+    if (attempt < 2) {
+      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+      continue;
+    }
+    throw lastErr;
   }
-  throw new Error(`xydc ${pathName} failed`);
+  throw lastErr || new Error(`xydc ${pathName} failed`);
 }
 
 function encryptJson(obj, code) {
@@ -84,7 +93,8 @@ function encryptJson(obj, code) {
 
 const products = JSON.parse(fs.readFileSync(productsPath, "utf8"));
 const executedAt = new Date().toISOString();
-const trendEnd = addDays(dateInLosAngeles(), -1);
+// 西柚趋势接口对“昨天”可能尚未入库（InvalidTrendsRange），从 LA 今-2 起回退
+let trendEnd = addDays(dateInLosAngeles(), -2);
 const trendStart = addDays(trendEnd, -29);
 
 console.log(`xydc daily: ${products.length} ASINs, trend ${trendStart}..${trendEnd}`);
@@ -106,14 +116,34 @@ for (const p of products) {
       sort: { field: "traffic", order: "desc" },
     })
   );
-  trendResults.push(
-    await callXydc("/v1/asins/trafficScore/trend/daily", {
-      asin: p.asin,
-      country: "US",
-      startDate: trendStart,
-      endDate: trendEnd,
-    })
-  );
+}
+
+// trend：失败则整体缩短日期并重试（最多回退 5 天）
+for (const p of products) {
+  let end = trendEnd;
+  let ok = null;
+  for (let i = 0; i < 5; i += 1) {
+    try {
+      ok = await callXydc("/v1/asins/trafficScore/trend/daily", {
+        asin: p.asin,
+        country: "US",
+        startDate: addDays(end, -29),
+        endDate: end,
+      });
+      trendEnd = end;
+      break;
+    } catch (err) {
+      if (String(err.message).includes("400") || String(err.message).includes("InvalidTrendsRange")) {
+        end = addDays(end, -1);
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (!ok) {
+    console.warn(`trend skipped for ${p.asin}`);
+  }
+  trendResults.push(ok || { trends: [] });
 }
 
 // Lightweight normalize (aligned with xydc-normalize.js)
@@ -160,16 +190,20 @@ const performance = products.flatMap((p, i) => {
 
 const daily = products.flatMap((p, i) => {
   const t = trendResults[i];
-  const list = t?.list || t?.data?.list || t?.data || t?.rows || [];
-  const rows = Array.isArray(list) ? list : [];
-  return rows.map((row) => ({
-    asin: p.asin,
-    msku: p.msku,
-    date: row.date ?? row.statDate ?? "",
-    organicTrafficScore: Number(row.organicTrafficScore ?? 0),
-    advertisingTrafficScore: Number(row.advertisingTrafficScore ?? 0),
-    totalTrafficScore: Number(row.totalTrafficScore ?? 0),
-  }));
+  const rows = Array.isArray(t?.trends) ? t.trends : Array.isArray(t?.list) ? t.list : Array.isArray(t) ? t : [];
+  return rows.map((row) => {
+    const s = row.summaryTrafficScore || row;
+    return {
+      asin: p.asin,
+      msku: p.msku,
+      date: row.date ?? row.statDate ?? "",
+      organicTrafficScore: Number(s.organic ?? s.organicTrafficScore ?? 0),
+      advertisingTrafficScore: Number(s.advertising ?? s.advertisingTrafficScore ?? 0),
+      totalTrafficScore: Number(
+        (s.organic ?? s.organicTrafficScore ?? 0) + (s.advertising ?? s.advertisingTrafficScore ?? 0)
+      ),
+    };
+  });
 });
 
 const payload = {
@@ -179,6 +213,7 @@ const payload = {
     trendEnd,
     productCount: products.length,
     keywordCount: performance.length,
+    dailyCount: daily.length,
   },
   summary,
   performance,
