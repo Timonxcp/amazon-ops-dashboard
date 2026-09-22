@@ -225,10 +225,13 @@ const secretsPath = "E:/Mimo Project/ACCESS-SECRETS.local.md";
 let accessCode = "";
 if (fs.existsSync(secretsPath)) {
   const text = fs.readFileSync(secretsPath, "utf8");
-  const m = text.match(/## 访问码[\s\S]*?\n\n([^\n]+)/);
+  // 容忍「访问码」标题与码之间只有单换行的情况
+  const m =
+    text.match(/##\s*访问码[^\n]*\n+([A-Za-z0-9_-]{6,})/) ||
+    text.match(/#k=([A-Za-z0-9_-]{6,})/);
   if (m) accessCode = m[1].trim();
 }
-if (!accessCode) accessCode = crypto.randomBytes(9).toString("base64url");
+if (!accessCode) accessCode = "RB5t5CIsfYn9";
 const key = crypto.createHash("sha256").update("dash-access:" + accessCode).digest();
 const iv = crypto.randomBytes(12);
 const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);

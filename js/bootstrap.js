@@ -43,13 +43,17 @@ async function unlock(secret) {
   const kwPack = window.DASH_KW_ENC;
   if (!encPack) throw new Error("missing data pack");
 
-  // Prefer local overlay pack from weekly import if fresher
   let data;
   try {
     const localPack = JSON.parse(localStorage.getItem("dash_data_pack_v1") || "null");
     data = localPack ? await decryptPack(localPack, secret) : await decryptPack(encPack, secret);
   } catch (e) {
-    data = await decryptPack(encPack, secret);
+    // 本地包损坏时回退线上包
+    try {
+      data = await decryptPack(encPack, secret);
+    } catch (e2) {
+      throw e2;
+    }
   }
 
   let keywords = null;
