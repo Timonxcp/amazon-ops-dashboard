@@ -1,11 +1,10 @@
-/* Amazon 美国站经营大盘 · 浅色 + 无感邀请门禁 */
+/* Amazon 美国站经营大盘 · 浅色渲染（由 bootstrap 解锁后加载） */
 (() => {
-  const ENC = window.DASH_ENC;
-  const META = window.DASH_META || {};
-  const gateEl = document.getElementById("gate");
-  const appEl = document.getElementById("app");
-  const errorEl = document.getElementById("gate-error");
-  const STORE_KEY = "dash_invite_key_v1";
+  const DATA = window.DASH_DATA;
+  if (!DATA) {
+    console.error("DASH_DATA missing");
+    return;
+  }
 
   const COLORS = {
     accent: "#2F6FED",
@@ -28,70 +27,12 @@
 
   const state = { range: "all", grain: "day", msku: "all" };
   const charts = {};
-  let DATA = null;
 
-  function b64ToBytes(s) {
-    const bin = atob(s);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
-    return out;
+  function seriesFor(msku) {
+    if (msku === "all") return DATA.daily;
+    return DATA.productDaily?.[msku] || DATA.daily;
   }
 
-  async function deriveKey(secret) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("dash-access:" + secret));
-    return new Uint8Array(digest);
-  }
-
-  async function decryptPayload(secret) {
-    if (!ENC) throw new Error("missing ciphertext");
-    const keyBytes = await deriveKey(String(secret).trim());
-    const iv = b64ToBytes(ENC.iv);
-    const raw = b64ToBytes(ENC.ct);
-    const ct = raw.slice(0, raw.length - 16);
-    const tag = raw.slice(raw.length - 16);
-    const data = new Uint8Array(ct.length + tag.length);
-    data.set(ct, 0);
-    data.set(tag, ct.length);
-    const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["decrypt"]);
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
-    return JSON.parse(new TextDecoder().decode(plain));
-  }
-
-  function readKeyFromLocation() {
-    const hash = location.hash.replace(/^#/, "");
-    const params = new URLSearchParams(hash.includes("=") ? hash : "");
-    const fromHash = params.get("k");
-    if (fromHash) return fromHash;
-    const q = new URLSearchParams(location.search);
-    return q.get("k");
-  }
-
-  function saveKey(key) {
-    try {
-      localStorage.setItem(STORE_KEY, key);
-    } catch (_) {}
-  }
-
-  function loadSavedKey() {
-    try {
-      return localStorage.getItem(STORE_KEY);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function showGate(msg) {
-    gateEl.classList.remove("is-hidden");
-    appEl.classList.add("is-hidden");
-    if (msg) errorEl.textContent = msg;
-  }
-
-  function showApp() {
-    gateEl.classList.add("is-hidden");
-    appEl.classList.remove("is-hidden");
-  }
-
-  // --- formatters / chart / render (same model as previous) ---
   const fmtMoney = (v, digits = 0) => {
     if (v == null || Number.isNaN(v)) return "—";
     const sign = v < 0 ? "-" : "";
@@ -116,11 +57,6 @@
     const arrow = Math.abs(d) < 0.05 ? "→" : d > 0 ? "↑" : "↓";
     return `${arrow} ${Math.abs(d).toFixed(1)}%`;
   };
-
-  function seriesFor(msku) {
-    if (msku === "all") return DATA.daily;
-    return DATA.productDaily?.[msku] || DATA.daily;
-  }
 
   function resolveWindow(rows) {
     if (!rows.length) return { current: [], previous: [], label: "无数据" };
@@ -599,42 +535,14 @@
     window.addEventListener("resize", () => Object.values(charts).forEach((c) => c.resize()));
   }
 
-  async function tryUnlock(secret) {
-    const data = await decryptPayload(secret);
-    DATA = data;
-    saveKey(secret);
-    showApp();
+  function boot() {
     bindControls();
-    renderAll();
-  }
-
-  async function boot() {
-    if (META?.title) document.title = META.title;
-    const fromLoc = readKeyFromLocation();
-    const saved = loadSavedKey();
-    const candidate = (fromLoc || saved || "").trim();
-    if (candidate) {
-      try {
-        await tryUnlock(candidate);
-        if (fromLoc && location.hash) history.replaceState(null, "", location.pathname + location.search);
-        return;
-      } catch (_) {
-        /* fall through to gate */
-      }
-    }
-    showGate(candidate ? "访问码无效或已过期，请重新使用邀请链接。" : "");
-
-    document.getElementById("gate-form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      errorEl.textContent = "";
-      const code = document.getElementById("gate-code").value.trim();
-      if (!code) return;
-      try {
-        await tryUnlock(code);
-      } catch (err) {
-        errorEl.textContent = "访问码不正确。";
-      }
-    });
+    const start = () => {
+      if (!window.echarts || !window.DASH_DATA) return void setTimeout(start, 30);
+      renderAll();
+    };
+    start();
+    // import button handled by import-ui after load
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

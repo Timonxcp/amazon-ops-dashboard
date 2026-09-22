@@ -1,0 +1,35 @@
+name: xydc-keywords-daily
+
+on:
+  schedule:
+    # 每天 16:30 UTC ≈ 北京时间 00:30，对应美西次日数据就绪后
+    - cron: "30 16 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Refresh ASIN keyword traffic via XiYou API
+        env:
+          XYDC_API_KEY: ${{ secrets.XYDC_API_KEY }}
+          DASHBOARD_ACCESS_CODE: ${{ secrets.DASHBOARD_ACCESS_CODE }}
+        run: node scripts/xydc-daily.mjs
+      - name: Commit keywords pack
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add js/keywords.enc.js
+          if git diff --cached --quiet; then
+            echo "no keyword changes"
+          else
+            git commit -m "chore: daily XiYou keyword traffic refresh"
+            git push
+          fi

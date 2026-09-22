@@ -221,18 +221,39 @@ function roundDeep(obj) {
 }
 
 const payload = roundDeep(out);
-const accessCode = crypto.randomBytes(9).toString("base64url");
+const secretsPath = "E:/Mimo Project/ACCESS-SECRETS.local.md";
+let accessCode = "";
+if (fs.existsSync(secretsPath)) {
+  const text = fs.readFileSync(secretsPath, "utf8");
+  const m = text.match(/## 访问码[\s\S]*?\n\n([^\n]+)/);
+  if (m) accessCode = m[1].trim();
+}
+if (!accessCode) accessCode = crypto.randomBytes(9).toString("base64url");
 const key = crypto.createHash("sha256").update("dash-access:" + accessCode).digest();
 const iv = crypto.randomBytes(12);
 const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-const plain = Buffer.from(JSON.stringify(payload), "utf8");
-const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
-const tag = cipher.getAuthTag();
+const payloadFull = {
+  ...payload,
+  queries: {
+    product_daily: { rows: pd },
+    campaign_daily: { rows: cd },
+    placement_daily: { rows: pl },
+  },
+  keywords: {
+    summary: ks,
+    performance: kp,
+    daily: j.queries.keyword_daily.rows,
+    fetchedAt: j.generatedAt,
+  },
+};
+const plainFull = Buffer.from(JSON.stringify(roundDeep(payloadFull)), "utf8");
+const ctFull = Buffer.concat([cipher.update(plainFull), cipher.final()]);
+const tagFull = cipher.getAuthTag();
 const pack = {
   v: 1,
   alg: "AES-GCM",
   iv: iv.toString("base64"),
-  ct: Buffer.concat([ct, tag]).toString("base64"),
+  ct: Buffer.concat([ctFull, tagFull]).toString("base64"),
 };
 
 fs.mkdirSync("E:/Mimo Project/js", { recursive: true });
@@ -251,23 +272,54 @@ const encJs =
   ";\n";
 fs.writeFileSync("E:/Mimo Project/js/data.enc.js", encJs);
 
+// Keyword pack (same access code) — also used by daily xydc refresh
+const kwPlain = Buffer.from(
+  JSON.stringify(
+    roundDeep({
+      meta: { executedAt: j.generatedAt, source: "bootstrap" },
+      summary: ks,
+      performance: kp,
+      daily: j.queries.keyword_daily.rows,
+    })
+  ),
+  "utf8"
+);
+const kwIv = crypto.randomBytes(12);
+const kwCipher = crypto.createCipheriv("aes-256-gcm", key, kwIv);
+const kwCt = Buffer.concat([kwCipher.update(kwPlain), kwCipher.final()]);
+const kwTag = kwCipher.getAuthTag();
+const kwPack = {
+  v: 1,
+  alg: "AES-GCM",
+  iv: kwIv.toString("base64"),
+  ct: Buffer.concat([kwCt, kwTag]).toString("base64"),
+};
+fs.writeFileSync(
+  "E:/Mimo Project/js/keywords.enc.js",
+  "window.DASH_KW_ENC = " +
+    JSON.stringify(kwPack) +
+    ";\nwindow.DASH_KW_META = " +
+    JSON.stringify({ executedAt: j.generatedAt, productCount: ks.length, keywordCount: kp.length }) +
+    ";\n"
+);
+
 const invite =
   "https://timonxcp.github.io/amazon-ops-dashboard/#k=" + accessCode;
-fs.writeFileSync(
-  "E:/Mimo Project/ACCESS-SECRETS.local.md",
-  [
-    "# 访问密钥（请勿提交到 git / 勿公开）",
-    "",
-    "## 无感邀请链接（推荐分发给同事）",
-    invite,
-    "",
-    "## 访问码（门禁页可手动输入，与链接密钥相同）",
-    accessCode,
-    "",
-    "> 重置：重新运行 `node scripts/build-data.mjs`，把新的 `js/data.enc.js` 推到线上，旧链接/旧码作废。",
-    "",
-  ].join("\n")
-);
+const secretsBody = [
+  "# 访问密钥（请勿提交到 git / 勿公开）",
+  "",
+  "## 无感邀请链接（推荐分发给同事）",
+  invite,
+  "",
+  "## 访问码（门禁页可手动输入，与链接密钥相同）",
+  accessCode,
+  "",
+  "> 重置：删除本文件后重跑 `node scripts/build-data.mjs`，并更新 GitHub Secret DASHBOARD_ACCESS_CODE。",
+  "",
+].join("\n");
+if (!fs.existsSync(secretsPath) || !fs.readFileSync(secretsPath, "utf8").includes(accessCode)) {
+  fs.writeFileSync(secretsPath, secretsBody);
+}
 
 console.log("wrote data.enc.js bytes", encJs.length);
 console.log("accessCode saved (local only)");

@@ -1,3 +1,4 @@
+<!-- AI生成 -->
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -9,9 +10,12 @@
   <link rel="stylesheet" href="css/styles.css" />
   <script src="js/echarts.min.js" defer></script>
   <script src="js/data.enc.js" defer></script>
-  <script src="js/app.js" defer></script>
+  <script src="js/keywords.enc.js" defer></script>
+  <script type="module" src="js/bootstrap.js"></script>
 </head>
 <body>
+<p data-aigc-mark="1" style="margin:0 0 8px;font-size:10px;line-height:1.3;color:#6b6560;font-weight:400;">AI生成</p>
+
   <div id="gate" class="gate is-hidden">
     <div class="gate-card">
       <h1>Amazon 美国站经营大盘</h1>
@@ -51,9 +55,34 @@
             <span class="sr-only">MSKU</span>
             <select id="msku-filter" aria-label="MSKU 筛选"></select>
           </label>
+          <button type="button" class="btn-primary" id="btn-import">导入业绩</button>
         </div>
       </div>
     </header>
+
+    <div class="modal is-hidden" id="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
+      <div class="modal-card">
+        <header class="modal-head">
+          <h2 id="import-title">导入业绩数据 · 每周 3 份 Excel</h2>
+          <button type="button" class="modal-close" id="import-close" aria-label="关闭">×</button>
+        </header>
+        <p class="modal-desc">
+          从领星导出后一次选择三份文件：<strong>产品表现</strong>、<strong>广告活动报告</strong>、<strong>SP 广告位</strong>。
+          系统会按日合并、刷新经营指标，并生成新的 <code>data.enc.js</code> 供发布。
+        </p>
+        <label class="file-drop">
+          <input id="import-files" type="file" accept=".xlsx,.xls" multiple />
+          <span>点击选择 3 个 Excel（可多选）</span>
+        </label>
+        <div id="import-preview"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" id="import-close-2">取消</button>
+          <button type="button" class="btn-primary" id="import-apply" disabled>合并并下载 data.enc.js</button>
+        </div>
+        <div class="modal-status" id="import-status"></div>
+        <p class="modal-hint">ASIN / 关键词流量由西柚 API 每日自动更新，无需在此导入。</p>
+      </div>
+    </div>
 
     <main class="page">
       <section class="hero-strip" id="kpi-strip" aria-label="核心指标"></section>
