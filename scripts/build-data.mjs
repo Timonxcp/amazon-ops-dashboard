@@ -1,4 +1,5 @@
 import fs from "fs";
+import crypto from "crypto";
 const path = "C:/Users/xcp17/Documents/ChatGPT/数据大盘表/amazon-dashboard/src/data.json";
 const j = JSON.parse(fs.readFileSync(path, "utf8"));
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
@@ -219,10 +220,57 @@ function roundDeep(obj) {
   return r2(obj);
 }
 
+const payload = roundDeep(out);
+const accessCode = crypto.randomBytes(9).toString("base64url");
+const key = crypto.createHash("sha256").update("dash-access:" + accessCode).digest();
+const iv = crypto.randomBytes(12);
+const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+const plain = Buffer.from(JSON.stringify(payload), "utf8");
+const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
+const tag = cipher.getAuthTag();
+const pack = {
+  v: 1,
+  alg: "AES-GCM",
+  iv: iv.toString("base64"),
+  ct: Buffer.concat([ct, tag]).toString("base64"),
+};
+
 fs.mkdirSync("E:/Mimo Project/js", { recursive: true });
-const js = "window.DASH_DATA = " + JSON.stringify(roundDeep(out)) + ";\n";
-fs.writeFileSync("E:/Mimo Project/js/data.js", js);
-console.log("wrote data.js bytes", js.length);
+const encJs =
+  "window.DASH_ENC = " +
+  JSON.stringify(pack) +
+  ";\nwindow.DASH_META = " +
+  JSON.stringify({
+    title: payload.meta.title,
+    store: payload.meta.store,
+    dateStart: payload.meta.dateStart,
+    dateEnd: payload.meta.dateEnd,
+    dayCount: payload.meta.dayCount,
+    mskuCount: payload.meta.mskuCount,
+  }) +
+  ";\n";
+fs.writeFileSync("E:/Mimo Project/js/data.enc.js", encJs);
+
+const invite =
+  "https://timonxcp.github.io/amazon-ops-dashboard/#k=" + accessCode;
+fs.writeFileSync(
+  "E:/Mimo Project/ACCESS-SECRETS.local.md",
+  [
+    "# 访问密钥（请勿提交到 git / 勿公开）",
+    "",
+    "## 无感邀请链接（推荐分发给同事）",
+    invite,
+    "",
+    "## 访问码（门禁页可手动输入，与链接密钥相同）",
+    accessCode,
+    "",
+    "> 重置：重新运行 `node scripts/build-data.mjs`，把新的 `js/data.enc.js` 推到线上，旧链接/旧码作废。",
+    "",
+  ].join("\n")
+);
+
+console.log("wrote data.enc.js bytes", encJs.length);
+console.log("accessCode saved (local only)");
 console.log("overall sales", out.overall.sales, "profit", out.overall.orderProfit);
 console.log("weekly", weekly.length, "daily", daily.length, "products", productTotals.length);
 console.log("top products", productTotals.slice(0, 5).map((p) => p.msku + ":" + p.sales).join(" | "));

@@ -1,20 +1,21 @@
-/* Amazon 美国站经营大盘 · 重设计前端 */
+/* Amazon 美国站经营大盘 · 浅色 + 无感邀请门禁 */
 (() => {
-  const DATA = window.DASH_DATA;
-  if (!DATA) {
-    document.body.innerHTML = "<p style='padding:2rem;font-family:sans-serif'>数据未加载</p>";
-    return;
-  }
+  const ENC = window.DASH_ENC;
+  const META = window.DASH_META || {};
+  const gateEl = document.getElementById("gate");
+  const appEl = document.getElementById("app");
+  const errorEl = document.getElementById("gate-error");
+  const STORE_KEY = "dash_invite_key_v1";
 
   const COLORS = {
-    electric: "#5B8CFF",
-    mint: "#3DDC97",
-    violet: "#C084FC",
-    amber: "#FFB454",
-    rose: "#FF6B8A",
-    muted: "#8A9BB0",
-    ink: "#F2F7FC",
-    border: "#243041",
+    accent: "#2F6FED",
+    mint: "#0F9D6E",
+    violet: "#7C5CFF",
+    amber: "#C47B00",
+    rose: "#D6455D",
+    muted: "#78716C",
+    ink: "#1C1917",
+    border: "#E4DCCB",
   };
 
   const CHANNEL_LABEL = { SP: "SP", SD: "SD", SB: "SB", SB2: "SB", SBV: "SB", OTHER: "其他" };
@@ -27,7 +28,70 @@
 
   const state = { range: "all", grain: "day", msku: "all" };
   const charts = {};
+  let DATA = null;
 
+  function b64ToBytes(s) {
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  async function deriveKey(secret) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("dash-access:" + secret));
+    return new Uint8Array(digest);
+  }
+
+  async function decryptPayload(secret) {
+    if (!ENC) throw new Error("missing ciphertext");
+    const keyBytes = await deriveKey(String(secret).trim());
+    const iv = b64ToBytes(ENC.iv);
+    const raw = b64ToBytes(ENC.ct);
+    const ct = raw.slice(0, raw.length - 16);
+    const tag = raw.slice(raw.length - 16);
+    const data = new Uint8Array(ct.length + tag.length);
+    data.set(ct, 0);
+    data.set(tag, ct.length);
+    const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["decrypt"]);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+    return JSON.parse(new TextDecoder().decode(plain));
+  }
+
+  function readKeyFromLocation() {
+    const hash = location.hash.replace(/^#/, "");
+    const params = new URLSearchParams(hash.includes("=") ? hash : "");
+    const fromHash = params.get("k");
+    if (fromHash) return fromHash;
+    const q = new URLSearchParams(location.search);
+    return q.get("k");
+  }
+
+  function saveKey(key) {
+    try {
+      localStorage.setItem(STORE_KEY, key);
+    } catch (_) {}
+  }
+
+  function loadSavedKey() {
+    try {
+      return localStorage.getItem(STORE_KEY);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function showGate(msg) {
+    gateEl.classList.remove("is-hidden");
+    appEl.classList.add("is-hidden");
+    if (msg) errorEl.textContent = msg;
+  }
+
+  function showApp() {
+    gateEl.classList.add("is-hidden");
+    appEl.classList.remove("is-hidden");
+  }
+
+  // --- formatters / chart / render (same model as previous) ---
   const fmtMoney = (v, digits = 0) => {
     if (v == null || Number.isNaN(v)) return "—";
     const sign = v < 0 ? "-" : "";
@@ -48,7 +112,7 @@
     const good = lowerIsBetter ? d < 0 : d > 0;
     return good ? "up" : "down";
   };
-  const toneText = (d, lowerIsBetter = false) => {
+  const toneText = (d) => {
     const arrow = Math.abs(d) < 0.05 ? "→" : d > 0 ? "↑" : "↓";
     return `${arrow} ${Math.abs(d).toFixed(1)}%`;
   };
@@ -62,10 +126,7 @@
     if (!rows.length) return { current: [], previous: [], label: "无数据" };
     const endIdx = rows.length - 1;
     let startIdx = 0;
-    if (state.range !== "all") {
-      const n = Number(state.range);
-      startIdx = Math.max(0, rows.length - n);
-    }
+    if (state.range !== "all") startIdx = Math.max(0, rows.length - Number(state.range));
     const current = rows.slice(startIdx, endIdx + 1);
     const span = current.length;
     const prevEnd = startIdx - 1;
@@ -88,9 +149,7 @@
   }
 
   function toGrain(rows) {
-    if (state.grain === "day" || !rows.length) {
-      return rows.map((r) => ({ ...r, label: r.date }));
-    }
+    if (state.grain === "day" || !rows.length) return rows.map((r) => ({ ...r, label: r.date }));
     const map = new Map();
     for (const r of rows) {
       const d = new Date(r.date + "T00:00:00Z");
@@ -109,8 +168,7 @@
     const start = performance.now();
     function frame(now) {
       const t = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      el.textContent = format(target * eased);
+      el.textContent = format(target * (1 - Math.pow(1 - t, 3)));
       if (t < 1) requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
@@ -132,7 +190,7 @@
         const p = prev ? prev[item.key] : null;
         const d = p == null ? 0 : deltaPct(c, p);
         const tone = p == null ? "flat" : toneClass(d, item.lower);
-        const badge = p == null ? "本期" : toneText(d, item.lower);
+        const badge = p == null ? "本期" : toneText(d);
         return `
           <article class="kpi">
             <div class="kpi-label">${item.label}</div>
@@ -142,9 +200,7 @@
           </article>`;
       })
       .join("");
-    for (const item of items) {
-      countUp(host.querySelector(`[data-kpi="${item.key}"]`), cur[item.key] ?? 0, item.fmt);
-    }
+    for (const item of items) countUp(host.querySelector(`[data-kpi="${item.key}"]`), cur[item.key] ?? 0, item.fmt);
   }
 
   function judgeSignals(cur, prev) {
@@ -160,7 +216,6 @@
     const promoDiscount = cur.promotionDiscount || 0;
     const conversionRate = cur.conversionRate || 0;
     const refund = cur.refundAmount || 0;
-
     const prevAdSpend = prev?.adSpend ?? 0;
     const prevAdSales = prev?.adSales ?? 0;
     const prevSessions = prev?.sessions ?? 0;
@@ -168,90 +223,37 @@
     const prevProfit = prev?.orderProfit ?? 0;
 
     if (adSpend > 0 && adOrders === 0) {
-      signals.push({
-        tone: "critical", badge: "需检查", title: "广告无转化",
-        note: "本窗口有广告花费但没有广告订单，优先检查投放与否词。",
-        metrics: [["花费", fmtMoney(adSpend)], ["广告订单", "0"], ["ACoS", adSales ? fmtPct((adSpend / adSales) * 100) : "—"]],
-      });
+      signals.push({ tone: "critical", badge: "需检查", title: "广告无转化", note: "本窗口有广告花费但没有广告订单，优先检查投放与否词。", metrics: [["花费", fmtMoney(adSpend)], ["广告订单", "0"], ["ACoS", adSales ? fmtPct((adSpend / adSales) * 100) : "—"]] });
     } else if (prev && adSpend > prevAdSpend * 1.15 && adSales < prevAdSales * 0.95 && prevAdSales > 0) {
-      signals.push({
-        tone: "watch", badge: "效率承压", title: "广告预算",
-        note: "广告花费上升、广告销售下降，需复核预算与投放结构。",
-        metrics: [["花费", fmtMoney(adSpend)], ["广告销售", fmtMoney(adSales)], ["ACoS", adSales ? fmtPct((adSpend / adSales) * 100) : "—"]],
-      });
+      signals.push({ tone: "watch", badge: "效率承压", title: "广告预算", note: "广告花费上升、广告销售下降，需复核预算与投放结构。", metrics: [["花费", fmtMoney(adSpend)], ["广告销售", fmtMoney(adSales)], ["ACoS", adSales ? fmtPct((adSpend / adSales) * 100) : "—"]] });
     } else {
-      signals.push({
-        tone: "neutral", badge: "保持观察", title: "广告预算",
-        note: "结合花费、广告订单与 ACoS 变化评估是否加减预算。",
-        metrics: [["花费", fmtMoney(adSpend)], ["广告销售", fmtMoney(adSales)], ["ACoS", adSales ? fmtPct((adSpend / adSales) * 100) : "—"]],
-      });
+      signals.push({ tone: "neutral", badge: "保持观察", title: "广告预算", note: "结合花费、广告订单与 ACoS 变化评估是否加减预算。", metrics: [["花费", fmtMoney(adSpend)], ["广告销售", fmtMoney(adSales)], ["ACoS", adSales ? fmtPct((adSpend / adSales) * 100) : "—"]] });
     }
 
     if (sales > 0 && profit < 0) {
-      signals.push({
-        tone: "critical", badge: "利润风险", title: "促销折扣",
-        note: "窗口订单利润为负，需检查折扣力度与实际利润。",
-        metrics: [["折扣", fmtMoney(promoDiscount)], ["订单利润", fmtMoney(profit)], ["毛利率", fmtPct((profit / sales) * 100)]],
-      });
+      signals.push({ tone: "critical", badge: "利润风险", title: "促销折扣", note: "窗口订单利润为负，需检查折扣力度与实际利润。", metrics: [["折扣", fmtMoney(promoDiscount)], ["订单利润", fmtMoney(profit)], ["毛利率", fmtPct((profit / sales) * 100)]] });
     } else if (prev && promoDiscount > 0 && profit < prevProfit && prevProfit > 0) {
-      signals.push({
-        tone: "watch", badge: "检查折扣", title: "促销折扣",
-        note: "折扣仍在发生且利润同比下降，复核促销强度。",
-        metrics: [["折扣", fmtMoney(promoDiscount)], ["订单利润", fmtMoney(profit)], ["销量", fmtInt(units)]],
-      });
+      signals.push({ tone: "watch", badge: "检查折扣", title: "促销折扣", note: "折扣仍在发生且利润同比下降，复核促销强度。", metrics: [["折扣", fmtMoney(promoDiscount)], ["订单利润", fmtMoney(profit)], ["销量", fmtInt(units)]] });
     } else {
-      signals.push({
-        tone: profit > 0 ? "good" : "neutral",
-        badge: profit > 0 ? "有利润贡献" : "保持观察",
-        title: "促销折扣",
-        note: "结合促销销量、折扣和利润判断是否延续活动。",
-        metrics: [["折扣", fmtMoney(promoDiscount)], ["订单利润", fmtMoney(profit)], ["销量", fmtInt(units)]],
-      });
+      signals.push({ tone: profit > 0 ? "good" : "neutral", badge: profit > 0 ? "有利润贡献" : "保持观察", title: "促销折扣", note: "结合促销销量、折扣和利润判断是否延续活动。", metrics: [["折扣", fmtMoney(promoDiscount)], ["订单利润", fmtMoney(profit)], ["销量", fmtInt(units)]] });
     }
 
     const sessDown = prev && prevSessions > 0 && sessions < prevSessions * 0.9;
     const convDown = prev && prevConversion > 0 && conversionRate < prevConversion * 0.9;
     if (sessDown && convDown) {
-      signals.push({
-        tone: "watch", badge: "双项下降", title: "流量转化",
-        note: "流量与转化同时下降，需同时检查流量来源和 Listing。",
-        metrics: [["Sessions", fmtInt(sessions)], ["转化率", fmtPct(conversionRate, 2)], ["订单", fmtInt(orders)]],
-      });
+      signals.push({ tone: "watch", badge: "双项下降", title: "流量转化", note: "流量与转化同时下降，需同时检查流量来源和 Listing。", metrics: [["Sessions", fmtInt(sessions)], ["转化率", fmtPct(conversionRate, 2)], ["订单", fmtInt(orders)]] });
     } else if (convDown) {
-      signals.push({
-        tone: "watch", badge: "转化下降", title: "流量转化",
-        note: "流量未明显下降但转化走弱，优先检查 Listing、价格与优惠。",
-        metrics: [["Sessions", fmtInt(sessions)], ["转化率", fmtPct(conversionRate, 2)], ["订单", fmtInt(orders)]],
-      });
+      signals.push({ tone: "watch", badge: "转化下降", title: "流量转化", note: "流量未明显下降但转化走弱，优先检查 Listing、价格与优惠。", metrics: [["Sessions", fmtInt(sessions)], ["转化率", fmtPct(conversionRate, 2)], ["订单", fmtInt(orders)]] });
     } else if (sessDown) {
-      signals.push({
-        tone: "neutral", badge: "流量下降", title: "流量转化",
-        note: "转化相对稳定，优先检查流量获取与关键词覆盖。",
-        metrics: [["Sessions", fmtInt(sessions)], ["转化率", fmtPct(conversionRate, 2)], ["订单", fmtInt(orders)]],
-      });
+      signals.push({ tone: "neutral", badge: "流量下降", title: "流量转化", note: "转化相对稳定，优先检查流量获取与关键词覆盖。", metrics: [["Sessions", fmtInt(sessions)], ["转化率", fmtPct(conversionRate, 2)], ["订单", fmtInt(orders)]] });
     } else {
-      signals.push({
-        tone: "good", badge: "表现稳定", title: "流量转化",
-        note: "流量与转化未出现同步恶化，维持现有节奏。",
-        metrics: [["Sessions", fmtInt(sessions)], ["转化率", fmtPct(conversionRate, 2)], ["订单", fmtInt(orders)]],
-      });
+      signals.push({ tone: "good", badge: "表现稳定", title: "流量转化", note: "流量与转化未出现同步恶化，维持现有节奏。", metrics: [["Sessions", fmtInt(sessions)], ["转化率", fmtPct(conversionRate, 2)], ["订单", fmtInt(orders)]] });
     }
 
     const refundRatio = sales ? (refund / sales) * 100 : 0;
-    signals.push(
-      refundRatio > 5
-        ? {
-            tone: "watch", badge: "退款偏高", title: "售后退款",
-            note: "退款金额占销售额偏高，抽查差评/退货原因。",
-            metrics: [["退款", fmtMoney(refund)], ["占销售", fmtPct(refundRatio)], ["销售", fmtMoney(sales)]],
-          }
-        : {
-            tone: "good", badge: "正常", title: "售后退款",
-            note: "退款占比处于可控区间。",
-            metrics: [["退款", fmtMoney(refund)], ["占销售", fmtPct(refundRatio)], ["销售", fmtMoney(sales)]],
-          }
-    );
-
+    signals.push(refundRatio > 5
+      ? { tone: "watch", badge: "退款偏高", title: "售后退款", note: "退款金额占销售额偏高，抽查差评/退货原因。", metrics: [["退款", fmtMoney(refund)], ["占销售", fmtPct(refundRatio)], ["销售", fmtMoney(sales)]] }
+      : { tone: "good", badge: "正常", title: "售后退款", note: "退款占比处于可控区间。", metrics: [["退款", fmtMoney(refund)], ["占销售", fmtPct(refundRatio)], ["销售", fmtMoney(sales)]] });
     return signals;
   }
 
@@ -259,8 +261,7 @@
     const rank = { critical: 0, watch: 1, neutral: 2, good: 3 };
     const top = judgeSignals(cur, prev).sort((a, b) => rank[a.tone] - rank[b.tone]).slice(0, 4);
     document.getElementById("signal-grid").innerHTML = top
-      .map(
-        (s) => `
+      .map((s) => `
       <article class="signal" data-tone="${s.tone}">
         <span class="signal-badge">${s.badge}</span>
         <h3>${s.title}</h3>
@@ -268,8 +269,7 @@
         <div class="signal-metrics">
           ${s.metrics.map(([k, v]) => `<div><span>${k}</span><strong>${v}</strong></div>`).join("")}
         </div>
-      </article>`
-      )
+      </article>`)
       .join("");
   }
 
@@ -281,41 +281,49 @@
 
   const baseTooltip = () => ({
     trigger: "axis",
-    backgroundColor: "rgba(15,21,29,0.96)",
+    backgroundColor: "rgba(255,252,247,0.98)",
     borderColor: COLORS.border,
     textStyle: { color: COLORS.ink, fontSize: 12 },
-    axisPointer: { type: "line", lineStyle: { color: "rgba(138,155,176,0.35)" } },
+    axisPointer: { type: "line", lineStyle: { color: "rgba(120,113,108,0.25)" } },
   });
 
-  function renderFinancialChart(rows) {
-    const chart = ensureChart("chart-financial");
-    if (!chart) return;
-    chart.setOption({
-      color: [COLORS.electric, COLORS.mint, COLORS.violet],
-      tooltip: baseTooltip(),
-      legend: { data: ["销售额", "订单利润", "广告花费"], textStyle: { color: COLORS.muted, fontSize: 11 }, top: 4, right: 12 },
-      grid: { left: 48, right: 24, top: 36, bottom: 28 },
+  function axisCommon(labels) {
+    return {
       xAxis: {
         type: "category",
-        data: rows.map((r) => r.label),
+        data: labels,
         axisLine: { lineStyle: { color: COLORS.border } },
         axisLabel: { color: COLORS.muted, fontSize: 10 },
       },
       yAxis: {
         type: "value",
         axisLabel: { color: COLORS.muted, fontSize: 10 },
-        splitLine: { lineStyle: { color: "rgba(36,48,65,0.7)" } },
+        splitLine: { lineStyle: { color: "rgba(228,220,203,0.9)" } },
       },
+    };
+  }
+
+  function renderFinancialChart(rows) {
+    const chart = ensureChart("chart-financial");
+    if (!chart) return;
+    const ax = axisCommon(rows.map((r) => r.label));
+    chart.setOption({
+      color: [COLORS.accent, COLORS.mint, COLORS.violet],
+      tooltip: baseTooltip(),
+      legend: { data: ["销售额", "订单利润", "广告花费"], textStyle: { color: COLORS.muted, fontSize: 11 }, top: 4, right: 12 },
+      grid: { left: 48, right: 24, top: 36, bottom: 28 },
+      xAxis: ax.xAxis,
+      yAxis: ax.yAxis,
       series: [
         {
           name: "销售额", type: "line", smooth: true, showSymbol: false,
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: "rgba(91,140,255,0.35)" },
-              { offset: 1, color: "rgba(91,140,255,0.02)" },
+              { offset: 0, color: "rgba(47,111,237,0.22)" },
+              { offset: 1, color: "rgba(47,111,237,0.02)" },
             ]),
           },
-          lineStyle: { width: 2, color: COLORS.electric },
+          lineStyle: { width: 2, color: COLORS.accent },
           data: rows.map((r) => r.sales),
         },
         { name: "订单利润", type: "line", smooth: true, showSymbol: false, lineStyle: { width: 2, color: COLORS.mint }, data: rows.map((r) => r.orderProfit) },
@@ -328,7 +336,7 @@
     const chart = ensureChart("chart-demand");
     if (!chart) return;
     chart.setOption({
-      color: [COLORS.muted, COLORS.electric],
+      color: [COLORS.muted, COLORS.accent],
       tooltip: baseTooltip(),
       legend: { data: ["Sessions", "销量"], textStyle: { color: COLORS.muted, fontSize: 11 }, top: 4, right: 8 },
       grid: { left: 44, right: 16, top: 36, bottom: 28 },
@@ -339,12 +347,12 @@
         axisLabel: { color: COLORS.muted, fontSize: 10 },
       },
       yAxis: [
-        { type: "value", axisLabel: { color: COLORS.muted, fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(36,48,65,0.7)" } } },
+        { type: "value", axisLabel: { color: COLORS.muted, fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(228,220,203,0.9)" } } },
         { type: "value", axisLabel: { color: COLORS.muted, fontSize: 10 }, splitLine: { show: false } },
       ],
       series: [
-        { name: "Sessions", type: "bar", barMaxWidth: 12, itemStyle: { color: "rgba(138,155,176,0.45)", borderRadius: [3, 3, 0, 0] }, data: rows.map((r) => r.sessions) },
-        { name: "销量", type: "line", yAxisIndex: 1, smooth: true, showSymbol: false, lineStyle: { width: 2, color: COLORS.electric }, data: rows.map((r) => r.units) },
+        { name: "Sessions", type: "bar", barMaxWidth: 12, itemStyle: { color: "rgba(120,113,108,0.28)", borderRadius: [3, 3, 0, 0] }, data: rows.map((r) => r.sessions) },
+        { name: "销量", type: "line", yAxisIndex: 1, smooth: true, showSymbol: false, lineStyle: { width: 2, color: COLORS.accent }, data: rows.map((r) => r.units) },
       ],
     });
   }
@@ -366,7 +374,7 @@
       yAxis: {
         type: "value",
         axisLabel: { color: COLORS.muted, fontSize: 10, formatter: "{value}%" },
-        splitLine: { lineStyle: { color: "rgba(36,48,65,0.7)" } },
+        splitLine: { lineStyle: { color: "rgba(228,220,203,0.9)" } },
       },
       series: [
         { name: "转化率", type: "line", smooth: true, showSymbol: false, lineStyle: { width: 2, color: COLORS.mint }, data: rows.map((r) => (r.conversionRate == null ? null : +r.conversionRate.toFixed(2))) },
@@ -387,7 +395,7 @@
     }
     const rows = Object.values(groups).sort((a, b) => b.spend - a.spend);
     chart.setOption({
-      color: [COLORS.violet, COLORS.electric],
+      color: [COLORS.violet, COLORS.accent],
       tooltip: baseTooltip(),
       legend: { data: ["花费", "广告销售"], textStyle: { color: COLORS.muted, fontSize: 11 }, top: 4, right: 8 },
       grid: { left: 48, right: 16, top: 36, bottom: 28 },
@@ -397,10 +405,10 @@
         axisLine: { lineStyle: { color: COLORS.border } },
         axisLabel: { color: COLORS.muted, fontSize: 11 },
       },
-      yAxis: { type: "value", axisLabel: { color: COLORS.muted, fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(36,48,65,0.7)" } } },
+      yAxis: { type: "value", axisLabel: { color: COLORS.muted, fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(228,220,203,0.9)" } } },
       series: [
         { name: "花费", type: "bar", barMaxWidth: 28, itemStyle: { color: COLORS.violet, borderRadius: [4, 4, 0, 0] }, data: rows.map((r) => r.spend) },
-        { name: "广告销售", type: "bar", barMaxWidth: 28, itemStyle: { color: COLORS.electric, borderRadius: [4, 4, 0, 0] }, data: rows.map((r) => r.sales) },
+        { name: "广告销售", type: "bar", barMaxWidth: 28, itemStyle: { color: COLORS.accent, borderRadius: [4, 4, 0, 0] }, data: rows.map((r) => r.sales) },
       ],
     });
   }
@@ -420,7 +428,7 @@
         axisLine: { lineStyle: { color: COLORS.border } },
         axisLabel: { color: COLORS.muted, fontSize: 10, interval: 0, rotate: 18 },
       },
-      yAxis: { type: "value", axisLabel: { color: COLORS.muted, fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(36,48,65,0.7)" } } },
+      yAxis: { type: "value", axisLabel: { color: COLORS.muted, fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(228,220,203,0.9)" } } },
       series: [
         { name: "花费", type: "bar", barMaxWidth: 22, itemStyle: { color: COLORS.amber, borderRadius: [4, 4, 0, 0] }, data: rows.map((r) => r.spend) },
         { name: "广告销售", type: "bar", barMaxWidth: 22, itemStyle: { color: COLORS.mint, borderRadius: [4, 4, 0, 0] }, data: rows.map((r) => r.sales) },
@@ -434,7 +442,7 @@
     const rows = DATA.keywordSummary;
     chart.setOption({
       color: [COLORS.mint, COLORS.violet],
-      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: "rgba(15,21,29,0.96)", borderColor: COLORS.border, textStyle: { color: COLORS.ink, fontSize: 12 } },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: "rgba(255,252,247,0.98)", borderColor: COLORS.border, textStyle: { color: COLORS.ink, fontSize: 12 } },
       legend: { data: ["自然流量得分", "广告流量得分"], textStyle: { color: COLORS.muted, fontSize: 11 }, top: 4, right: 8 },
       grid: { left: 48, right: 16, top: 36, bottom: 40 },
       xAxis: {
@@ -443,7 +451,7 @@
         axisLine: { lineStyle: { color: COLORS.border } },
         axisLabel: { color: COLORS.muted, fontSize: 10, interval: 0, rotate: 12 },
       },
-      yAxis: { type: "value", axisLabel: { color: COLORS.muted, fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(36,48,65,0.7)" } } },
+      yAxis: { type: "value", axisLabel: { color: COLORS.muted, fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(228,220,203,0.9)" } } },
       series: [
         { name: "自然流量得分", type: "bar", stack: "score", barMaxWidth: 34, itemStyle: { color: COLORS.mint }, data: rows.map((r) => r.organicTrafficScore || 0) },
         { name: "广告流量得分", type: "bar", stack: "score", barMaxWidth: 34, itemStyle: { color: COLORS.violet, borderRadius: [4, 4, 0, 0] }, data: rows.map((r) => r.advertisingTrafficScore || 0) },
@@ -456,7 +464,7 @@
     const rows = state.msku === "all" ? DATA.products : DATA.products.filter((p) => p.msku === state.msku);
     tbody.innerHTML = rows
       .map((p, idx) => {
-        const color = [COLORS.electric, COLORS.mint, COLORS.violet, COLORS.amber, COLORS.rose][idx % 5];
+        const color = [COLORS.accent, COLORS.mint, COLORS.violet, COLORS.amber, COLORS.rose][idx % 5];
         return `
         <tr data-msku="${p.msku}" class="${state.msku === p.msku ? "is-active" : ""}">
           <td><span class="msk-tag"><span class="msk-dot" style="background:${color}"></span>${p.msku}</span></td>
@@ -521,10 +529,7 @@
     document.querySelector("#keyword-table tbody").innerHTML = rows
       .slice(0, 30)
       .map((k) => {
-        const type =
-          k.trafficType === "organic" ? "自然" :
-          k.trafficType === "advertising" ? "广告" :
-          k.trafficType === "both" ? "自然+广告" : "未分类";
+        const type = k.trafficType === "organic" ? "自然" : k.trafficType === "advertising" ? "广告" : k.trafficType === "both" ? "自然+广告" : "未分类";
         return `<tr>
           <td>${k.searchTerm}</td>
           <td>${k.msku}</td>
@@ -539,8 +544,7 @@
   }
 
   function renderMeta(win) {
-    document.getElementById("active-range-label").textContent =
-      (state.msku === "all" ? "" : state.msku + " · ") + win.label;
+    document.getElementById("active-range-label").textContent = (state.msku === "all" ? "" : state.msku + " · ") + win.label;
     document.getElementById("brand-meta").textContent = `${DATA.meta.store} · ${DATA.meta.dateStart} → ${DATA.meta.dateEnd}`;
     document.getElementById("footer-meta").textContent =
       `数据窗口 ${DATA.meta.dateStart} – ${DATA.meta.dateEnd} · ${DATA.meta.dayCount} 天 · ${DATA.meta.mskuCount} 个 MSKU`;
@@ -595,13 +599,42 @@
     window.addEventListener("resize", () => Object.values(charts).forEach((c) => c.resize()));
   }
 
-  function boot() {
+  async function tryUnlock(secret) {
+    const data = await decryptPayload(secret);
+    DATA = data;
+    saveKey(secret);
+    showApp();
     bindControls();
-    const start = () => {
-      if (!window.echarts || !window.DASH_DATA) return void setTimeout(start, 30);
-      renderAll();
-    };
-    start();
+    renderAll();
+  }
+
+  async function boot() {
+    if (META?.title) document.title = META.title;
+    const fromLoc = readKeyFromLocation();
+    const saved = loadSavedKey();
+    const candidate = (fromLoc || saved || "").trim();
+    if (candidate) {
+      try {
+        await tryUnlock(candidate);
+        if (fromLoc && location.hash) history.replaceState(null, "", location.pathname + location.search);
+        return;
+      } catch (_) {
+        /* fall through to gate */
+      }
+    }
+    showGate(candidate ? "访问码无效或已过期，请重新使用邀请链接。" : "");
+
+    document.getElementById("gate-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorEl.textContent = "";
+      const code = document.getElementById("gate-code").value.trim();
+      if (!code) return;
+      try {
+        await tryUnlock(code);
+      } catch (err) {
+        errorEl.textContent = "访问码不正确。";
+      }
+    });
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

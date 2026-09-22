@@ -4,3 +4,6 @@ Thumbs.db
 node_modules/
 .vercel/
 .wrangler/
+ACCESS-SECRETS.local.md
+js/.keypack.json
+js/data.js
