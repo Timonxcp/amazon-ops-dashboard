@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Amazon 美国站经营大盘 · BouncePixel-US 历史经营信号" />
+  <title>Amazon 美国站经营大盘</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <script src="js/echarts.min.js" defer></script>
+  <script src="js/data.js" defer></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <div class="brand-title">Amazon 美国站经营大盘</div>
+          <div class="brand-sub" id="brand-meta">BouncePixel-US · 历史快照</div>
+        </div>
+      </div>
+      <div class="topbar-controls">
+        <div class="seg" role="group" aria-label="日期预设" id="range-presets">
+          <button type="button" data-range="7">近 7 天</button>
+          <button type="button" data-range="28">近 4 周</button>
+          <button type="button" data-range="84">近 12 周</button>
+          <button type="button" data-range="all" class="is-active">全部</button>
+        </div>
+        <div class="seg" role="group" aria-label="粒度" id="grain-switch">
+          <button type="button" data-grain="day" class="is-active">日</button>
+          <button type="button" data-grain="week">周</button>
+        </div>
+        <label class="select-wrap">
+          <span class="sr-only">MSKU</span>
+          <select id="msku-filter" aria-label="MSKU 筛选"></select>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero-strip" id="kpi-strip" aria-label="核心指标"></section>
+
+    <section class="section" id="signals">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">01 · DECISION RADAR</p>
+          <h2>优先动作信号</h2>
+          <p class="section-desc">基于当前筛选窗口自动判定，与前一等长周期对比</p>
+        </div>
+        <div class="range-label" id="active-range-label"></div>
+      </div>
+      <div class="signal-grid" id="signal-grid"></div>
+    </section>
+
+    <section class="section" id="trends">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">02 · TREND</p>
+          <h2>经营趋势</h2>
+          <p class="section-desc">销售额、订单利润与广告花费 · 流量销量 · 转化效率</p>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <article class="panel span-2">
+          <header class="panel-head">
+            <h3>销售额 · 订单利润 · 广告花费</h3>
+            <span class="panel-note" id="chart-fin-note"></span>
+          </header>
+          <div class="chart" id="chart-financial"></div>
+        </article>
+        <article class="panel">
+          <header class="panel-head">
+            <h3>Sessions 与销量</h3>
+            <span class="panel-note">流量需求</span>
+          </header>
+          <div class="chart" id="chart-demand"></div>
+        </article>
+        <article class="panel">
+          <header class="panel-head">
+            <h3>转化率与综合 ACoS</h3>
+            <span class="panel-note">效率</span>
+          </header>
+          <div class="chart" id="chart-efficiency"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="products">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">03 · PRODUCTS</p>
+          <h2>产品作战榜</h2>
+          <p class="section-desc">按销售额排序 · 点击行可筛选全局</p>
+        </div>
+      </div>
+      <div class="panel table-panel">
+        <div class="table-scroll">
+          <table class="data-table" id="product-table">
+            <thead>
+              <tr>
+                <th>MSKU</th>
+                <th>产品</th>
+                <th class="num">销售额</th>
+                <th class="num">销量</th>
+                <th class="num">订单</th>
+                <th class="num">订单利润</th>
+                <th class="num">毛利率</th>
+                <th class="num">转化率</th>
+                <th class="num">综合 ACoS</th>
+                <th class="num">广告花费</th>
+                <th class="num">Sessions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="ads">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">04 · ADS</p>
+          <h2>广告结构</h2>
+          <p class="section-desc">广告类型投入产出 · SP 广告位四象限</p>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <article class="panel">
+          <header class="panel-head">
+            <h3>广告类型 · 花费与销售</h3>
+            <span class="panel-note">全周期累计</span>
+          </header>
+          <div class="chart" id="chart-channels"></div>
+        </article>
+        <article class="panel">
+          <header class="panel-head">
+            <h3>SP 广告位 · 花费与销售</h3>
+            <span class="panel-note">全周期累计</span>
+          </header>
+          <div class="chart" id="chart-placements"></div>
+        </article>
+        <article class="panel span-2">
+          <header class="panel-head">
+            <h3>广告渠道明细</h3>
+            <span class="panel-note">口径：领星渠道归一</span>
+          </header>
+          <div class="table-scroll">
+            <table class="data-table" id="channel-table">
+              <thead>
+                <tr>
+                  <th>类型</th>
+                  <th class="num">曝光</th>
+                  <th class="num">点击</th>
+                  <th class="num">CTR</th>
+                  <th class="num">花费</th>
+                  <th class="num">广告销售</th>
+                  <th class="num">ACoS</th>
+                  <th class="num">ROAS</th>
+                  <th class="num">订单</th>
+                  <th class="num">CVR</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="table-scroll" style="margin-top:12px">
+            <table class="data-table" id="placement-table">
+              <thead>
+                <tr>
+                  <th>广告位</th>
+                  <th class="num">曝光</th>
+                  <th class="num">点击</th>
+                  <th class="num">花费</th>
+                  <th class="num">广告销售</th>
+                  <th class="num">ACoS</th>
+                  <th class="num">ROAS</th>
+                  <th class="num">订单</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="keywords">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">05 · KEYWORDS</p>
+          <h2>关键词势能</h2>
+          <p class="section-desc">自然 / 广告流量得分与头部搜索词</p>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <article class="panel">
+          <header class="panel-head">
+            <h3>MSKU 流量得分结构</h3>
+            <span class="panel-note">自然 vs 广告</span>
+          </header>
+          <div class="chart" id="chart-keyword-score"></div>
+        </article>
+        <article class="panel">
+          <header class="panel-head">
+            <h3>Top 搜索词</h3>
+            <span class="panel-note">按总流量</span>
+          </header>
+          <div class="table-scroll keyword-scroll">
+            <table class="data-table" id="keyword-table">
+              <thead>
+                <tr>
+                  <th>搜索词</th>
+                  <th>MSKU</th>
+                  <th>类型</th>
+                  <th class="num">总流量</th>
+                  <th class="num">自然</th>
+                  <th class="num">广告</th>
+                  <th class="num">自然排名</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div id="footer-meta"></div>
+      <div class="footer-note">数据为历史 reviewed 快照聚合，仅供内部经营复盘 · 不含实时拉取</div>
+    </div>
+  </footer>
+</body>
+</html>
